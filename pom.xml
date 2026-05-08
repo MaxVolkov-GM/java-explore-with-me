@@ -22,6 +22,7 @@
     <modules>
         <module>ewm-stats-service/stats-dto</module>
         <module>ewm-stats-service/stats-server</module>
+        <module>ewm-stats-service/stats-client</module>
     </modules>
 
     <properties>
