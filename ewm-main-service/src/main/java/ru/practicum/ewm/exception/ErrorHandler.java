@@ -13,6 +13,7 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -40,7 +41,9 @@ public class ErrorHandler {
 	@ExceptionHandler({
 			ConstraintViolationException.class,
 			MethodArgumentTypeMismatchException.class,
-			MissingServletRequestParameterException.class
+			MissingServletRequestParameterException.class,
+			DateTimeParseException.class,
+			IllegalArgumentException.class
 	})
 	@ResponseStatus(HttpStatus.BAD_REQUEST)
 	public ApiError handleBadRequest(Exception exception) {
