@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 import ru.practicum.ewm.event.dto.EventFullDto;
 import ru.practicum.ewm.event.dto.UpdateEventAdminRequest;
 import ru.practicum.ewm.event.model.EventState;
-import ru.practicum.ewm.event.service.EventService;
+import ru.practicum.ewm.event.service.EventAdminService;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -28,7 +28,7 @@ import java.util.List;
 public class AdminEventController {
 	private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-	private final EventService eventService;
+	private final EventAdminService eventAdminService;
 
 	@GetMapping
 	public List<EventFullDto> getEvents(@RequestParam(required = false) List<Long> users,
@@ -38,7 +38,7 @@ public class AdminEventController {
 	                                    @RequestParam(required = false) String rangeEnd,
 	                                    @RequestParam(defaultValue = "0") @PositiveOrZero int from,
 	                                    @RequestParam(defaultValue = "10") @Positive int size) {
-		return eventService.getAdminEvents(
+		return eventAdminService.getAdminEvents(
 				users,
 				states,
 				categories,
@@ -52,7 +52,7 @@ public class AdminEventController {
 	@PatchMapping("/{eventId}")
 	public EventFullDto updateEvent(@PathVariable Long eventId,
 	                                @Valid @RequestBody UpdateEventAdminRequest request) {
-		return eventService.updateAdminEvent(eventId, request);
+		return eventAdminService.updateAdminEvent(eventId, request);
 	}
 
 	private LocalDateTime parseDate(String value) {

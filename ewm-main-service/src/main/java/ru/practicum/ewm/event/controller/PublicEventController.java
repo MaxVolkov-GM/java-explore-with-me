@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.RestController;
 import ru.practicum.ewm.event.dto.EventFullDto;
 import ru.practicum.ewm.event.dto.EventShortDto;
 import ru.practicum.ewm.event.model.EventSort;
-import ru.practicum.ewm.event.service.EventService;
+import ru.practicum.ewm.event.service.EventPublicService;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -26,7 +26,7 @@ import java.util.List;
 public class PublicEventController {
 	private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-	private final EventService eventService;
+	private final EventPublicService eventPublicService;
 
 	@GetMapping
 	public List<EventShortDto> getEvents(@RequestParam(required = false) String text,
@@ -39,7 +39,7 @@ public class PublicEventController {
 	                                     @RequestParam(defaultValue = "0") @PositiveOrZero int from,
 	                                     @RequestParam(defaultValue = "10") @Positive int size,
 	                                     HttpServletRequest request) {
-		return eventService.getPublicEvents(
+		return eventPublicService.getPublicEvents(
 				text,
 				categories,
 				paid,
@@ -57,7 +57,7 @@ public class PublicEventController {
 	@GetMapping("/{id}")
 	public EventFullDto getEvent(@PathVariable Long id,
 	                             HttpServletRequest request) {
-		return eventService.getPublicEvent(
+		return eventPublicService.getPublicEvent(
 				id,
 				request.getRequestURI(),
 				request.getRemoteAddr()
