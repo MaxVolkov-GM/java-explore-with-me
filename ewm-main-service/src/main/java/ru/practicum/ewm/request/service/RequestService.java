@@ -20,6 +20,7 @@ import ru.practicum.ewm.user.model.User;
 import ru.practicum.ewm.user.repository.UserRepository;
 
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -67,7 +68,7 @@ public class RequestService {
 		RequestStatus status = defineInitialStatus(event);
 
 		ParticipationRequest request = ParticipationRequest.builder()
-				.created(LocalDateTime.now())
+				.created(LocalDateTime.now().truncatedTo(ChronoUnit.MICROS))
 				.event(event)
 				.requester(requester)
 				.status(status)

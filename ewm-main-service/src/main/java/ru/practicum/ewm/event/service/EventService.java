@@ -426,7 +426,7 @@ public class EventService {
 		}
 
 		if (request.getEventDate() != null) {
-			validateEventDateForAdmin(request.getEventDate());
+			validateEventDateForAdminUpdate(request.getEventDate());
 			event.setEventDate(request.getEventDate());
 		}
 
@@ -466,7 +466,7 @@ public class EventService {
 			);
 		}
 
-		validateEventDateForAdmin(event.getEventDate());
+		validateEventDateForAdminPublication(event.getEventDate());
 
 		event.setState(EventState.PUBLISHED);
 		event.setPublishedOn(LocalDateTime.now());
@@ -482,11 +482,17 @@ public class EventService {
 
 	private void validateEventDateForUser(LocalDateTime eventDate) {
 		if (eventDate.isBefore(LocalDateTime.now().plusHours(2))) {
-			throw new ConflictException("Field: eventDate. Error: must be at least two hours after current time");
+			throw new IllegalArgumentException("Field: eventDate. Error: must be at least two hours after current time");
 		}
 	}
 
-	private void validateEventDateForAdmin(LocalDateTime eventDate) {
+	private void validateEventDateForAdminUpdate(LocalDateTime eventDate) {
+		if (eventDate.isBefore(LocalDateTime.now().plusHours(1))) {
+			throw new IllegalArgumentException("Field: eventDate. Error: must be at least one hour after current time");
+		}
+	}
+
+	private void validateEventDateForAdminPublication(LocalDateTime eventDate) {
 		if (eventDate.isBefore(LocalDateTime.now().plusHours(1))) {
 			throw new ConflictException("Field: eventDate. Error: must be at least one hour after current time");
 		}
