@@ -3,6 +3,7 @@ package ru.practicum.ewm.event.service;
 import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,6 +18,7 @@ import ru.practicum.ewm.event.dto.UpdateEventUserRequest;
 import ru.practicum.ewm.event.mapper.EventMapper;
 import ru.practicum.ewm.event.model.AdminStateAction;
 import ru.practicum.ewm.event.model.Event;
+import ru.practicum.ewm.event.model.EventSort;
 import ru.practicum.ewm.event.model.EventState;
 import ru.practicum.ewm.event.model.UserStateAction;
 import ru.practicum.ewm.event.repository.EventRepository;
@@ -24,22 +26,31 @@ import ru.practicum.ewm.exception.ConflictException;
 import ru.practicum.ewm.exception.NotFoundException;
 import ru.practicum.ewm.user.model.User;
 import ru.practicum.ewm.user.repository.UserRepository;
+import ru.practicum.stats.client.StatsClient;
+import ru.practicum.stats.dto.EndpointHitDto;
+import ru.practicum.stats.dto.ViewStatsDto;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class EventService {
+	private static final String APP_NAME = "ewm-main-service";
+	private static final LocalDateTime STATS_START = LocalDateTime.of(2000, 1, 1, 0, 0);
 	private static final Long DEFAULT_CONFIRMED_REQUESTS = 0L;
 	private static final Long DEFAULT_VIEWS = 0L;
 
 	private final EventRepository eventRepository;
 	private final UserRepository userRepository;
 	private final CategoryRepository categoryRepository;
+	private final StatsClient statsClient;
 
 	@Transactional
 	public EventFullDto create(Long userId, NewEventDto dto) {
@@ -126,6 +137,181 @@ public class EventService {
 		Event updatedEvent = eventRepository.save(event);
 
 		return EventMapper.toFullDto(updatedEvent, DEFAULT_CONFIRMED_REQUESTS, DEFAULT_VIEWS);
+	}
+
+	public List<EventShortDto> getPublicEvents(String text,
+	                                           List<Long> categories,
+	                                           Boolean paid,
+	                                           LocalDateTime rangeStart,
+	                                           LocalDateTime rangeEnd,
+	                                           Boolean onlyAvailable,
+	                                           EventSort sort,
+	                                           int from,
+	                                           int size,
+	                                           String uri,
+	                                           String ip) {
+		saveHit(uri, ip);
+		validateRange(rangeStart, rangeEnd);
+
+		Pageable pageable = createPublicPageable(from, size, sort);
+		Specification<Event> specification = buildPublicSpecification(text, categories, paid, rangeStart, rangeEnd);
+
+		List<Event> events = eventRepository.findAll(specification, pageable).getContent();
+		Map<Long, Long> views = getViews(events);
+
+		List<EventShortDto> result = events.stream()
+				.map(event -> EventMapper.toShortDto(
+						event,
+						DEFAULT_CONFIRMED_REQUESTS,
+						views.getOrDefault(event.getId(), DEFAULT_VIEWS)
+				))
+				.collect(Collectors.toList());
+
+		if (sort == EventSort.VIEWS) {
+			result.sort(Comparator.comparing(EventShortDto::getViews).reversed());
+		}
+
+		return result;
+	}
+
+	public EventFullDto getPublicEvent(Long eventId, String uri, String ip) {
+		Event event = eventRepository.findByIdAndState(eventId, EventState.PUBLISHED)
+				.orElseThrow(() -> new NotFoundException(
+						String.format("Event with id=%d was not found", eventId)
+				));
+
+		saveHit(uri, ip);
+
+		Long views = getViews(List.of(event)).getOrDefault(event.getId(), DEFAULT_VIEWS);
+
+		return EventMapper.toFullDto(event, DEFAULT_CONFIRMED_REQUESTS, views);
+	}
+
+	private Pageable createPublicPageable(int from, int size, EventSort sort) {
+		if (sort == EventSort.EVENT_DATE) {
+			return new OffsetPageRequest(from, size, Sort.by(Sort.Direction.ASC, "eventDate"));
+		}
+
+		return new OffsetPageRequest(from, size);
+	}
+
+	private Specification<Event> buildPublicSpecification(String text,
+	                                                      List<Long> categories,
+	                                                      Boolean paid,
+	                                                      LocalDateTime rangeStart,
+	                                                      LocalDateTime rangeEnd) {
+		return (root, query, criteriaBuilder) -> {
+			List<Predicate> predicates = new ArrayList<>();
+
+			predicates.add(criteriaBuilder.equal(root.get("state"), EventState.PUBLISHED));
+
+			if (text != null && !text.isBlank()) {
+				String pattern = "%" + text.toLowerCase() + "%";
+				Predicate annotationLike = criteriaBuilder.like(criteriaBuilder.lower(root.get("annotation")), pattern);
+				Predicate descriptionLike = criteriaBuilder.like(criteriaBuilder.lower(root.get("description")), pattern);
+				predicates.add(criteriaBuilder.or(annotationLike, descriptionLike));
+			}
+
+			if (categories != null && !categories.isEmpty()) {
+				predicates.add(root.get("category").get("id").in(categories));
+			}
+
+			if (paid != null) {
+				predicates.add(criteriaBuilder.equal(root.get("paid"), paid));
+			}
+
+			if (rangeStart == null && rangeEnd == null) {
+				predicates.add(criteriaBuilder.greaterThan(root.get("eventDate"), LocalDateTime.now()));
+			}
+
+			if (rangeStart != null) {
+				predicates.add(criteriaBuilder.greaterThanOrEqualTo(root.get("eventDate"), rangeStart));
+			}
+
+			if (rangeEnd != null) {
+				predicates.add(criteriaBuilder.lessThanOrEqualTo(root.get("eventDate"), rangeEnd));
+			}
+
+			return criteriaBuilder.and(predicates.toArray(new Predicate[0]));
+		};
+	}
+
+	private Specification<Event> buildAdminSpecification(List<Long> users,
+	                                                     List<EventState> states,
+	                                                     List<Long> categories,
+	                                                     LocalDateTime rangeStart,
+	                                                     LocalDateTime rangeEnd) {
+		return (root, query, criteriaBuilder) -> {
+			List<Predicate> predicates = new ArrayList<>();
+
+			if (users != null && !users.isEmpty()) {
+				predicates.add(root.get("initiator").get("id").in(users));
+			}
+
+			if (states != null && !states.isEmpty()) {
+				predicates.add(root.get("state").in(states));
+			}
+
+			if (categories != null && !categories.isEmpty()) {
+				predicates.add(root.get("category").get("id").in(categories));
+			}
+
+			if (rangeStart != null) {
+				predicates.add(criteriaBuilder.greaterThanOrEqualTo(root.get("eventDate"), rangeStart));
+			}
+
+			if (rangeEnd != null) {
+				predicates.add(criteriaBuilder.lessThanOrEqualTo(root.get("eventDate"), rangeEnd));
+			}
+
+			return criteriaBuilder.and(predicates.toArray(new Predicate[0]));
+		};
+	}
+
+	private Map<Long, Long> getViews(List<Event> events) {
+		if (events == null || events.isEmpty()) {
+			return Map.of();
+		}
+
+		List<String> uris = events.stream()
+				.map(event -> "/events/" + event.getId())
+				.collect(Collectors.toList());
+
+		List<ViewStatsDto> stats = statsClient.getStats(
+				STATS_START,
+				LocalDateTime.now().plusSeconds(1),
+				uris,
+				true
+		);
+
+		Map<Long, Long> views = new HashMap<>();
+
+		if (stats == null) {
+			return views;
+		}
+
+		for (ViewStatsDto viewStatsDto : stats) {
+			Long eventId = extractEventIdFromUri(viewStatsDto.getUri());
+			views.put(eventId, viewStatsDto.getHits());
+		}
+
+		return views;
+	}
+
+	private Long extractEventIdFromUri(String uri) {
+		String[] parts = uri.split("/");
+		return Long.parseLong(parts[parts.length - 1]);
+	}
+
+	private void saveHit(String uri, String ip) {
+		EndpointHitDto hit = EndpointHitDto.builder()
+				.app(APP_NAME)
+				.uri(uri)
+				.ip(ip)
+				.timestamp(LocalDateTime.now())
+				.build();
+
+		statsClient.saveHit(hit);
 	}
 
 	private void applyUserUpdate(Event event, UpdateEventUserRequest request) {
@@ -259,38 +445,6 @@ public class EventService {
 		if (rangeStart != null && rangeEnd != null && rangeStart.isAfter(rangeEnd)) {
 			throw new IllegalArgumentException("rangeStart must be before rangeEnd");
 		}
-	}
-
-	private Specification<Event> buildAdminSpecification(List<Long> users,
-	                                                     List<EventState> states,
-	                                                     List<Long> categories,
-	                                                     LocalDateTime rangeStart,
-	                                                     LocalDateTime rangeEnd) {
-		return (root, query, criteriaBuilder) -> {
-			List<Predicate> predicates = new ArrayList<>();
-
-			if (users != null && !users.isEmpty()) {
-				predicates.add(root.get("initiator").get("id").in(users));
-			}
-
-			if (states != null && !states.isEmpty()) {
-				predicates.add(root.get("state").in(states));
-			}
-
-			if (categories != null && !categories.isEmpty()) {
-				predicates.add(root.get("category").get("id").in(categories));
-			}
-
-			if (rangeStart != null) {
-				predicates.add(criteriaBuilder.greaterThanOrEqualTo(root.get("eventDate"), rangeStart));
-			}
-
-			if (rangeEnd != null) {
-				predicates.add(criteriaBuilder.lessThanOrEqualTo(root.get("eventDate"), rangeEnd));
-			}
-
-			return criteriaBuilder.and(predicates.toArray(new Predicate[0]));
-		};
 	}
 
 	private User getUserOrThrow(Long userId) {

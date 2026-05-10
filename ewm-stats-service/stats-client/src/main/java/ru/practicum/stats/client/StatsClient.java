@@ -8,6 +8,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 import ru.practicum.stats.dto.EndpointHitDto;
 import ru.practicum.stats.dto.ViewStatsDto;
 
+import java.net.URI;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -48,8 +49,10 @@ public class StatsClient {
 			}
 		}
 
+		URI uri = builder.build().encode().toUri();
+
 		ResponseEntity<List<ViewStatsDto>> response = restTemplate.exchange(
-				builder.encode().toUriString(),
+				uri,
 				HttpMethod.GET,
 				null,
 				new ParameterizedTypeReference<>() {
