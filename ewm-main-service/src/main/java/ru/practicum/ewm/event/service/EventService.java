@@ -24,6 +24,9 @@ import ru.practicum.ewm.event.model.UserStateAction;
 import ru.practicum.ewm.event.repository.EventRepository;
 import ru.practicum.ewm.exception.ConflictException;
 import ru.practicum.ewm.exception.NotFoundException;
+import ru.practicum.ewm.request.model.RequestStatus;
+import ru.practicum.ewm.request.repository.EventConfirmedRequestsProjection;
+import ru.practicum.ewm.request.repository.RequestRepository;
 import ru.practicum.ewm.user.model.User;
 import ru.practicum.ewm.user.repository.UserRepository;
 import ru.practicum.stats.client.StatsClient;
@@ -50,6 +53,7 @@ public class EventService {
 	private final EventRepository eventRepository;
 	private final UserRepository userRepository;
 	private final CategoryRepository categoryRepository;
+	private final RequestRepository requestRepository;
 	private final StatsClient statsClient;
 
 	@Transactional
@@ -69,10 +73,15 @@ public class EventService {
 		getUserOrThrow(userId);
 
 		Pageable pageable = new OffsetPageRequest(from, size);
+		List<Event> events = eventRepository.findAllByInitiatorId(userId, pageable);
+		Map<Long, Long> confirmedRequests = getConfirmedRequests(events);
 
-		return eventRepository.findAllByInitiatorId(userId, pageable)
-				.stream()
-				.map(event -> EventMapper.toShortDto(event, DEFAULT_CONFIRMED_REQUESTS, DEFAULT_VIEWS))
+		return events.stream()
+				.map(event -> EventMapper.toShortDto(
+						event,
+						confirmedRequests.getOrDefault(event.getId(), DEFAULT_CONFIRMED_REQUESTS),
+						DEFAULT_VIEWS
+				))
 				.collect(Collectors.toList());
 	}
 
@@ -84,7 +93,9 @@ public class EventService {
 						String.format("Event with id=%d was not found", eventId)
 				));
 
-		return EventMapper.toFullDto(event, DEFAULT_CONFIRMED_REQUESTS, DEFAULT_VIEWS);
+		Long confirmedRequests = requestRepository.countByEventIdAndStatus(eventId, RequestStatus.CONFIRMED);
+
+		return EventMapper.toFullDto(event, confirmedRequests, DEFAULT_VIEWS);
 	}
 
 	@Transactional
@@ -103,8 +114,9 @@ public class EventService {
 		applyUserUpdate(event, request);
 
 		Event updatedEvent = eventRepository.save(event);
+		Long confirmedRequests = requestRepository.countByEventIdAndStatus(eventId, RequestStatus.CONFIRMED);
 
-		return EventMapper.toFullDto(updatedEvent, DEFAULT_CONFIRMED_REQUESTS, DEFAULT_VIEWS);
+		return EventMapper.toFullDto(updatedEvent, confirmedRequests, DEFAULT_VIEWS);
 	}
 
 	public List<EventFullDto> getAdminEvents(List<Long> users,
@@ -118,10 +130,15 @@ public class EventService {
 
 		Pageable pageable = new OffsetPageRequest(from, size);
 		Specification<Event> specification = buildAdminSpecification(users, states, categories, rangeStart, rangeEnd);
+		List<Event> events = eventRepository.findAll(specification, pageable).getContent();
+		Map<Long, Long> confirmedRequests = getConfirmedRequests(events);
 
-		return eventRepository.findAll(specification, pageable).getContent()
-				.stream()
-				.map(event -> EventMapper.toFullDto(event, DEFAULT_CONFIRMED_REQUESTS, DEFAULT_VIEWS))
+		return events.stream()
+				.map(event -> EventMapper.toFullDto(
+						event,
+						confirmedRequests.getOrDefault(event.getId(), DEFAULT_CONFIRMED_REQUESTS),
+						DEFAULT_VIEWS
+				))
 				.collect(Collectors.toList());
 	}
 
@@ -135,8 +152,9 @@ public class EventService {
 		applyAdminUpdate(event, request);
 
 		Event updatedEvent = eventRepository.save(event);
+		Long confirmedRequests = requestRepository.countByEventIdAndStatus(eventId, RequestStatus.CONFIRMED);
 
-		return EventMapper.toFullDto(updatedEvent, DEFAULT_CONFIRMED_REQUESTS, DEFAULT_VIEWS);
+		return EventMapper.toFullDto(updatedEvent, confirmedRequests, DEFAULT_VIEWS);
 	}
 
 	public List<EventShortDto> getPublicEvents(String text,
@@ -157,12 +175,23 @@ public class EventService {
 		Specification<Event> specification = buildPublicSpecification(text, categories, paid, rangeStart, rangeEnd);
 
 		List<Event> events = eventRepository.findAll(specification, pageable).getContent();
+		Map<Long, Long> confirmedRequests = getConfirmedRequests(events);
+
+		if (Boolean.TRUE.equals(onlyAvailable)) {
+			events = events.stream()
+					.filter(event -> isAvailable(event, confirmedRequests.getOrDefault(
+							event.getId(),
+							DEFAULT_CONFIRMED_REQUESTS
+					)))
+					.collect(Collectors.toList());
+		}
+
 		Map<Long, Long> views = getViews(events);
 
 		List<EventShortDto> result = events.stream()
 				.map(event -> EventMapper.toShortDto(
 						event,
-						DEFAULT_CONFIRMED_REQUESTS,
+						confirmedRequests.getOrDefault(event.getId(), DEFAULT_CONFIRMED_REQUESTS),
 						views.getOrDefault(event.getId(), DEFAULT_VIEWS)
 				))
 				.collect(Collectors.toList());
@@ -182,9 +211,14 @@ public class EventService {
 
 		saveHit(uri, ip);
 
+		Long confirmedRequests = requestRepository.countByEventIdAndStatus(eventId, RequestStatus.CONFIRMED);
 		Long views = getViews(List.of(event)).getOrDefault(event.getId(), DEFAULT_VIEWS);
 
-		return EventMapper.toFullDto(event, DEFAULT_CONFIRMED_REQUESTS, views);
+		return EventMapper.toFullDto(event, confirmedRequests, views);
+	}
+
+	private boolean isAvailable(Event event, Long confirmedRequests) {
+		return event.getParticipantLimit() == 0 || confirmedRequests < event.getParticipantLimit();
 	}
 
 	private Pageable createPublicPageable(int from, int size, EventSort sort) {
@@ -266,6 +300,23 @@ public class EventService {
 
 			return criteriaBuilder.and(predicates.toArray(new Predicate[0]));
 		};
+	}
+
+	private Map<Long, Long> getConfirmedRequests(List<Event> events) {
+		if (events == null || events.isEmpty()) {
+			return Map.of();
+		}
+
+		List<Long> eventIds = events.stream()
+				.map(Event::getId)
+				.collect(Collectors.toList());
+
+		return requestRepository.countConfirmedRequestsByEventIds(eventIds, RequestStatus.CONFIRMED)
+				.stream()
+				.collect(Collectors.toMap(
+						EventConfirmedRequestsProjection::getEventId,
+						EventConfirmedRequestsProjection::getConfirmedRequests
+				));
 	}
 
 	private Map<Long, Long> getViews(List<Event> events) {
