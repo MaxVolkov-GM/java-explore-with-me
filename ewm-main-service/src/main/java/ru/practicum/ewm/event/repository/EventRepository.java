@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import ru.practicum.ewm.event.model.Event;
 import ru.practicum.ewm.event.model.EventState;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -21,6 +22,9 @@ public interface EventRepository extends JpaRepository<Event, Long>, JpaSpecific
 
 	@EntityGraph(attributePaths = {"category", "initiator"})
 	Optional<Event> findByIdAndState(Long eventId, EventState state);
+
+	@EntityGraph(attributePaths = {"category", "initiator"})
+	List<Event> findAllByIdIn(Collection<Long> ids);
 
 	@Override
 	@EntityGraph(attributePaths = {"category", "initiator"})
