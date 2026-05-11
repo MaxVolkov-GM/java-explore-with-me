@@ -14,13 +14,13 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class EventStatsService {
 	private static final String APP_NAME = "ewm-main-service";
-	private static final LocalDateTime STATS_START = LocalDateTime.of(2000, 1, 1, 0, 0);
 
 	private final RequestRepository requestRepository;
 	private final StatsClient statsClient;
@@ -46,7 +46,7 @@ public class EventStatsService {
 				.collect(Collectors.toList());
 
 		List<ViewStatsDto> stats = statsClient.getStats(
-				STATS_START,
+				getStatsStart(events),
 				LocalDateTime.now().plusSeconds(1),
 				uris,
 				true
@@ -85,6 +85,14 @@ public class EventStatsService {
 
 	public Long getConfirmedRequests(Long eventId) {
 		return requestRepository.countByEventIdAndStatus(eventId, RequestStatus.CONFIRMED);
+	}
+
+	private LocalDateTime getStatsStart(List<Event> events) {
+		return events.stream()
+				.map(Event::getPublishedOn)
+				.filter(Objects::nonNull)
+				.min(LocalDateTime::compareTo)
+				.orElse(LocalDateTime.now().minusYears(1));
 	}
 
 	private Long extractEventIdFromUri(String uri) {

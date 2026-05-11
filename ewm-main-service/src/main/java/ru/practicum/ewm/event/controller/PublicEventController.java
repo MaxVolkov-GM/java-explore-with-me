@@ -16,16 +16,15 @@ import ru.practicum.ewm.event.model.EventSort;
 import ru.practicum.ewm.event.service.EventPublicService;
 
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
+
+import static ru.practicum.ewm.common.DateTimeConstants.DATE_TIME_FORMATTER;
 
 @RestController
 @RequestMapping("/events")
 @RequiredArgsConstructor
 @Validated
 public class PublicEventController {
-	private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-
 	private final EventPublicService eventPublicService;
 
 	@GetMapping
@@ -69,6 +68,6 @@ public class PublicEventController {
 			return null;
 		}
 
-		return LocalDateTime.parse(value, FORMATTER);
+		return LocalDateTime.parse(value, DATE_TIME_FORMATTER);
 	}
 }

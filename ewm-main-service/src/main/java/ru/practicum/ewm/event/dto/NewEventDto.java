@@ -13,6 +13,8 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
+import static ru.practicum.ewm.common.DateTimeConstants.DATE_TIME_PATTERN;
+
 @Data
 @Builder
 @NoArgsConstructor
@@ -30,7 +32,7 @@ public class NewEventDto {
 	private String description;
 
 	@NotNull
-	@JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+	@JsonFormat(pattern = DATE_TIME_PATTERN)
 	private LocalDateTime eventDate;
 
 	@Valid

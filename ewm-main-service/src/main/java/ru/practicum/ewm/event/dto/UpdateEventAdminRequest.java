@@ -12,6 +12,8 @@ import ru.practicum.ewm.event.model.AdminStateAction;
 
 import java.time.LocalDateTime;
 
+import static ru.practicum.ewm.common.DateTimeConstants.DATE_TIME_PATTERN;
+
 @Data
 @Builder
 @NoArgsConstructor
@@ -25,7 +27,7 @@ public class UpdateEventAdminRequest {
 	@Size(min = 20, max = 7000)
 	private String description;
 
-	@JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+	@JsonFormat(pattern = DATE_TIME_PATTERN)
 	private LocalDateTime eventDate;
 
 	@Valid
